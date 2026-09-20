@@ -322,6 +322,18 @@
       var all = load('merchantKnowledge', defaultMerchantKnowledge);
       return all[merchantId] || [];
     },
+
+    /**
+     * 商家下拉选项（各页面统一的「名称（ID）」规则）
+     * @param {Array<string>} [excludeIds] 需要排除的商家 id（如黑名单）
+     * @returns {Array<{value:string,label:string}>}
+     */
+    merchantOptions: function (excludeIds) {
+      var excludes = excludeIds || [];
+      return store.getMerchants()
+        .filter(function (m) { return excludes.indexOf(m.id) === -1; })
+        .map(function (m) { return { value: m.id, label: m.name + '（' + m.id + '）' }; });
+    },
     setMerchantKnowledge: function (merchantId, list) {
       var all = load('merchantKnowledge', defaultMerchantKnowledge);
       all[merchantId] = list;
