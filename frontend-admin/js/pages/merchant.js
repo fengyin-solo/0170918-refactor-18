@@ -9,6 +9,7 @@
   var Table = App.Table;
   var Modal = App.Modal;
   var Select = App.Select;
+  var Form = App.Form;
 
   // ====================== 页面状态 ======================
   var state = {
@@ -20,6 +21,22 @@
     importParsedItems: [],
     importFileContent: null,
     importFileName: ''
+  };
+
+  /** 弹窗控制器（统一开关入口） */
+  var modals = {};
+
+  /** 商家表单字段映射 */
+  var merchantFields = {
+    id: 'merchantFormId',
+    name: 'merchantFormName'
+  };
+
+  /** 知识表单字段映射 */
+  var knowledgeFields = {
+    standardQ: 'formStandardQ',
+    similarQs: 'formSimilarQ',
+    answer: 'formAnswer'
   };
 
   // ====================== DOM 元素缓存 ======================
@@ -128,45 +145,43 @@
     openModal: function (id) {
       state.editingMerchantId = id || null;
       elements.merchantModalTitle.textContent = id ? '编辑商家' : '新增商家';
-      
+
       if (id) {
         elements.merchantFormIdWrap.style.display = 'block';
         elements.merchantFormId.disabled = true;
         var m = state.merchants.find(function (x) { return x.id === id; });
-        if (m) {
-          elements.merchantFormId.value = m.id;
-          elements.merchantFormName.value = m.name;
-        }
+        Form.setData(merchantFields, {
+          id: m ? m.id : '',
+          name: m ? m.name : ''
+        });
       } else {
         elements.merchantFormIdWrap.style.display = 'block';
         elements.merchantFormId.disabled = false;
-        elements.merchantFormId.value = '';
-        elements.merchantFormName.value = '';
+        Form.reset(merchantFields);
       }
-      elements.merchantModal.style.display = 'flex';
+      modals.merchant.open();
     },
 
     closeModal: function () {
-      elements.merchantModal.style.display = 'none';
-      state.editingMerchantId = null;
+      modals.merchant.close();
     },
 
     save: function () {
-      var name = elements.merchantFormName.value.trim();
-      if (!name) {
-        Toast.show('请填写商家名称', 'error');
+      var data = Form.getData(merchantFields);
+      var check = Form.validate(data, ['name'], { name: '商家名称' });
+      if (!check.valid) {
+        Toast.show(check.message, 'error');
         return;
       }
-      
+
       if (state.editingMerchantId) {
-        MockStore.updateMerchant(state.editingMerchantId, name);
+        MockStore.updateMerchant(state.editingMerchantId, data.name);
         Toast.show('商家信息更新成功', 'success');
       } else {
-        var id = elements.merchantFormId.value.trim();
-        MockStore.createMerchant(name, id || undefined);
+        MockStore.createMerchant(data.name, data.id || undefined);
         Toast.show('商家创建成功', 'success');
       }
-      
+
       this.closeModal();
       this.render();
       this.fillSelect();
@@ -205,24 +220,24 @@
         });
       }
 
-      Table.toggleEmpty(elements.knowledgeEmpty, elements.knowledgeBlock, list.length === 0);
-      
-      if (list.length === 0) {
-        elements.knowledgeTableBody.innerHTML = '';
-        return;
-      }
-
-      Table.render(elements.knowledgeTableBody, list, function (row) {
-        var k = row.data;
-        return '<td class="text-subtle text-sm">' + Utils.escapeHtml(row.merchantName) + '</td>' +
-          '<td class="text-obsidian">' + Utils.escapeHtml(k.standardQ || '') + '</td>' +
-          '<td class="text-subtle">' + Utils.escapeHtml((k.similarQs || []).join('；')) + '</td>' +
-          '<td class="text-charcoal max-w-xs truncate">' + Utils.escapeHtml(k.answer || '') + '</td>' +
-          '<td class="text-right">' +
-            '<button type="button" class="btn-link edit-btn mr-2" data-id="' + k.id + '" data-mid="' + row.merchantId + '">编辑</button>' +
-            '<button type="button" class="btn-link btn-link-danger delete-btn" data-id="' + k.id + '" data-mid="' + row.merchantId + '">删除</button>' +
-          '</td>';
-      }, this.bindTableEvents.bind(this));
+      Table.renderOrEmpty({
+        tbody: elements.knowledgeTableBody,
+        data: list,
+        emptyEl: elements.knowledgeEmpty,
+        blockEl: elements.knowledgeBlock,
+        rowRenderer: function (row) {
+          var k = row.data;
+          return '<td class="text-subtle text-sm">' + Utils.escapeHtml(row.merchantName) + '</td>' +
+            '<td class="text-obsidian">' + Utils.escapeHtml(k.standardQ || '') + '</td>' +
+            '<td class="text-subtle">' + Utils.escapeHtml((k.similarQs || []).join('；')) + '</td>' +
+            '<td class="text-charcoal max-w-xs truncate">' + Utils.escapeHtml(k.answer || '') + '</td>' +
+            '<td class="text-right">' +
+              '<button type="button" class="btn-link edit-btn mr-2" data-id="' + k.id + '" data-mid="' + row.merchantId + '">编辑</button>' +
+              '<button type="button" class="btn-link btn-link-danger delete-btn" data-id="' + k.id + '" data-mid="' + row.merchantId + '">删除</button>' +
+            '</td>';
+        },
+        bindEvents: this.bindTableEvents.bind(this)
+      });
     },
 
     bindTableEvents: function (tbody) {
@@ -260,69 +275,64 @@
     openModal: function (id) {
       state.editingKnowledgeId = id || null;
       elements.knowledgeModalTitle.textContent = id ? '编辑知识' : '新增知识';
-      
+
       if (id) {
         elements.knowledgeFormMerchantWrap.style.display = 'none';
         var list = MockStore.getMerchantKnowledge(state.currentMerchantId);
         var k = list.find(function (x) { return x.id === id; });
-        if (k) {
-          elements.formStandardQ.value = k.standardQ || '';
-          elements.formSimilarQ.value = (k.similarQs || []).join('\n');
-          elements.formAnswer.value = k.answer || '';
-        }
+        Form.setData(knowledgeFields, {
+          standardQ: k ? (k.standardQ || '') : '',
+          similarQs: k ? (k.similarQs || []).join('\n') : '',
+          answer: k ? (k.answer || '') : ''
+        });
       } else {
         elements.knowledgeFormMerchantWrap.style.display = 'block';
         this.fillFormSelect();
         elements.knowledgeFormMerchant.value = '';
-        elements.formStandardQ.value = '';
-        elements.formSimilarQ.value = '';
-        elements.formAnswer.value = '';
+        Form.reset(knowledgeFields);
       }
-      elements.knowledgeModal.style.display = 'flex';
+      modals.knowledge.open();
     },
 
     closeModal: function () {
-      elements.knowledgeModal.style.display = 'none';
-      state.editingKnowledgeId = null;
+      modals.knowledge.close();
     },
 
     save: function () {
-      var standardQ = elements.formStandardQ.value.trim();
-      var similarQs = elements.formSimilarQ.value.trim().split(/\n/).map(function (s) {
-        return s.trim();
-      }).filter(Boolean);
-      var answer = elements.formAnswer.value.trim();
-      
-      if (!standardQ) {
-        Toast.show('请填写标准问', 'error');
+      var data = Form.getData(knowledgeFields);
+      var similarQs = Utils.splitLines(data.similarQs);
+
+      var check = Form.validate(data, ['standardQ'], { standardQ: '标准问' });
+      if (!check.valid) {
+        Toast.show(check.message, 'error');
         return;
       }
-      
+
       var merchantId = state.editingKnowledgeId
         ? state.currentMerchantId
         : (elements.knowledgeFormMerchant.value || '').trim();
-      
+
       if (!merchantId) {
         Toast.show('请选择要添加知识的商家', 'error');
         return;
       }
-      
+
       if (state.editingKnowledgeId) {
         MockStore.updateMerchantKnowledge(merchantId, state.editingKnowledgeId, {
-          standardQ: standardQ,
+          standardQ: data.standardQ,
           similarQs: similarQs,
-          answer: answer
+          answer: data.answer
         });
         Toast.show('知识更新成功', 'success');
       } else {
         MockStore.addMerchantKnowledge(merchantId, {
-          standardQ: standardQ,
+          standardQ: data.standardQ,
           similarQs: similarQs,
-          answer: answer
+          answer: data.answer
         });
         Toast.show('知识创建成功', 'success');
       }
-      
+
       this.closeModal();
       this.render();
     }
@@ -345,13 +355,11 @@
       elements.importPreviewSection.style.display = 'none';
       elements.importNoPreview.style.display = 'block';
       this.switchTab('file');
-      elements.batchImportModal.style.display = 'flex';
+      modals.batchImport.open();
     },
 
     closeModal: function () {
-      elements.batchImportModal.style.display = 'none';
-      state.importParsedItems = [];
-      state.importFileContent = null;
+      modals.batchImport.close();
     },
 
     fillMerchantSelect: function () {
@@ -547,15 +555,10 @@
       elements.importStats.innerHTML = statsHtml;
 
       var tbody = elements.importPreviewBody;
-      tbody.innerHTML = '';
 
-      state.importParsedItems.forEach(function (row) {
-        var tr = document.createElement('tr');
-        if (row.isDuplicate) tr.className = 'import-dup-row';
-
+      Table.render(tbody, state.importParsedItems, function (row) {
         var k = row.item;
-        tr.innerHTML =
-          '<td class="text-center"><input type="checkbox" class="import-item-check" data-idx="' + row.index + '"' + (row.checked ? ' checked' : '') + (row.isDuplicate ? ' disabled' : '') + '/></td>' +
+        return '<td class="text-center"><input type="checkbox" class="import-item-check" data-idx="' + row.index + '"' + (row.checked ? ' checked' : '') + (row.isDuplicate ? ' disabled' : '') + '/></td>' +
           '<td class="text-slate-800">' + Utils.escapeHtml(k.standardQ) + '</td>' +
           '<td class="text-subtle text-sm">' + Utils.escapeHtml((k.similarQs || []).join('；')) + '</td>' +
           '<td class="text-charcoal max-w-xs truncate" title="' + Utils.escapeHtml(k.answer) + '">' + Utils.escapeHtml(k.answer) + '</td>' +
@@ -564,14 +567,13 @@
               ? '<span class="import-badge-intdup" title="与第 ' + (row.firstIndex + 1) + ' 条标准问相同，同批重复">同批重复</span>'
               : '<span class="import-badge-dup" title="已有相同标准问：' + Utils.escapeHtml((row.existingItem || {}).standardQ || '') + '">已有重复</span>')
             : '<span class="import-badge-new">新增</span>') + '</td>';
-
-        tbody.appendChild(tr);
+      }, this.bindPreviewEvents.bind(this), function (row) {
+        return row.isDuplicate ? 'import-dup-row' : '';
       });
 
       var nonDupItems = state.importParsedItems.filter(function (r) { return !r.isDuplicate; });
       elements.importSelectAll.checked = nonDupItems.length > 0 && nonDupItems.every(function (r) { return r.checked; });
       this.updateSelectedCount();
-      this.bindPreviewEvents();
     },
 
     bindPreviewEvents: function () {
@@ -638,6 +640,19 @@
 
   // ====================== 事件绑定 ======================
   function bindEvents() {
+    modals.merchant = Modal.create(elements.merchantModal, {
+      onClose: function () { state.editingMerchantId = null; }
+    });
+    modals.knowledge = Modal.create(elements.knowledgeModal, {
+      onClose: function () { state.editingKnowledgeId = null; }
+    });
+    modals.batchImport = Modal.create(elements.batchImportModal, {
+      onClose: function () {
+        state.importParsedItems = [];
+        state.importFileContent = null;
+      }
+    });
+
     // 商家相关
     elements.btnAddMerchant.addEventListener('click', function () {
       MerchantManager.openModal();
@@ -647,9 +662,6 @@
     });
     elements.merchantModalSubmit.addEventListener('click', function () {
       MerchantManager.save();
-    });
-    Modal.bindOverlayClose(elements.merchantModal, function () {
-      MerchantManager.closeModal();
     });
 
     // 知识相关
@@ -665,9 +677,6 @@
     });
     elements.knowledgeModalSubmit.addEventListener('click', function () {
       KnowledgeManager.save();
-    });
-    Modal.bindOverlayClose(elements.knowledgeModal, function () {
-      KnowledgeManager.closeModal();
     });
 
     // 批量导入相关
@@ -717,9 +726,6 @@
     });
     elements.importModalSubmit.addEventListener('click', function () {
       BatchImportManager.doImport();
-    });
-    Modal.bindOverlayClose(elements.batchImportModal, function () {
-      BatchImportManager.closeModal();
     });
   }
 

@@ -9,6 +9,7 @@
   var Table = App.Table;
   var Modal = App.Modal;
   var Select = App.Select;
+  var Form = App.Form;
 
   // ====================== 页面状态 ======================
   var state = {
@@ -16,6 +17,21 @@
     currentSetId: '',
     editingSetId: null,
     editingKnowledgeId: null
+  };
+
+  /** 弹窗控制器（统一开关入口） */
+  var modals = {};
+
+  /** 集合表单字段映射（商家多选框组仍单独处理） */
+  var setFields = {
+    name: 'setFormName'
+  };
+
+  /** 知识表单字段映射 */
+  var knowledgeFields = {
+    standardQ: 'formStandardQ',
+    similarQs: 'formSimilarQ',
+    answer: 'formAnswer'
   };
 
   // ====================== DOM 元素缓存 ======================
@@ -117,39 +133,39 @@
       
       if (id) {
         var set = state.sets.find(function (s) { return s.id === id; });
-        elements.setFormName.value = set ? set.name : '';
+        Form.setData(setFields, { name: set ? set.name : '' });
       } else {
-        elements.setFormName.value = '';
+        Form.reset(setFields);
       }
-      
-      elements.setModal.style.display = 'flex';
+
+      modals.set.open();
     },
 
     closeModal: function () {
-      elements.setModal.style.display = 'none';
-      state.editingSetId = null;
+      modals.set.close();
     },
 
     save: function () {
-      var name = elements.setFormName.value.trim();
-      if (!name) {
-        Toast.show('请填写集合名称', 'error');
+      var data = Form.getData(setFields);
+      var check = Form.validate(data, ['name'], { name: '集合名称' });
+      if (!check.valid) {
+        Toast.show(check.message, 'error');
         return;
       }
-      
+
       var ids = [];
       elements.setFormMerchants.querySelectorAll('.set-merchant-cb:checked').forEach(function (cb) {
         ids.push(cb.value);
       });
-      
+
       if (state.editingSetId) {
-        MockStore.updateMerchantSet(state.editingSetId, name, ids);
+        MockStore.updateMerchantSet(state.editingSetId, data.name, ids);
         Toast.show('商家集合更新成功', 'success');
       } else {
-        MockStore.createMerchantSet(name, ids);
+        MockStore.createMerchantSet(data.name, ids);
         Toast.show('商家集合创建成功', 'success');
       }
-      
+
       this.closeModal();
       this.render();
       this.fillSelect();
@@ -177,24 +193,24 @@
         });
       }
 
-      Table.toggleEmpty(elements.knowledgeEmpty, elements.knowledgeBlock, list.length === 0);
-      
-      if (list.length === 0) {
-        elements.knowledgeTableBody.innerHTML = '';
-        return;
-      }
-
-      Table.render(elements.knowledgeTableBody, list, function (row) {
-        var k = row.data;
-        return '<td class="text-subtle text-sm">' + Utils.escapeHtml(row.setName) + '</td>' +
-          '<td class="text-obsidian">' + Utils.escapeHtml(k.standardQ || '') + '</td>' +
-          '<td class="text-subtle">' + Utils.escapeHtml((k.similarQs || []).join('；')) + '</td>' +
-          '<td class="text-charcoal max-w-xs truncate">' + Utils.escapeHtml(k.answer || '') + '</td>' +
-          '<td class="text-right">' +
-            '<button type="button" class="btn-link k-edit mr-2" data-id="' + k.id + '" data-sid="' + row.setId + '">编辑</button>' +
-            '<button type="button" class="btn-link btn-link-danger k-delete" data-id="' + k.id + '" data-sid="' + row.setId + '">删除</button>' +
-          '</td>';
-      }, this.bindTableEvents.bind(this));
+      Table.renderOrEmpty({
+        tbody: elements.knowledgeTableBody,
+        data: list,
+        emptyEl: elements.knowledgeEmpty,
+        blockEl: elements.knowledgeBlock,
+        rowRenderer: function (row) {
+          var k = row.data;
+          return '<td class="text-subtle text-sm">' + Utils.escapeHtml(row.setName) + '</td>' +
+            '<td class="text-obsidian">' + Utils.escapeHtml(k.standardQ || '') + '</td>' +
+            '<td class="text-subtle">' + Utils.escapeHtml((k.similarQs || []).join('；')) + '</td>' +
+            '<td class="text-charcoal max-w-xs truncate">' + Utils.escapeHtml(k.answer || '') + '</td>' +
+            '<td class="text-right">' +
+              '<button type="button" class="btn-link k-edit mr-2" data-id="' + k.id + '" data-sid="' + row.setId + '">编辑</button>' +
+              '<button type="button" class="btn-link btn-link-danger k-delete" data-id="' + k.id + '" data-sid="' + row.setId + '">删除</button>' +
+            '</td>';
+        },
+        bindEvents: this.bindTableEvents.bind(this)
+      });
     },
 
     bindTableEvents: function (tbody) {
@@ -231,70 +247,65 @@
     openModal: function (id) {
       state.editingKnowledgeId = id || null;
       elements.knowledgeModalTitle.textContent = id ? '编辑知识' : '新增知识';
-      
+
       if (id) {
         elements.knowledgeFormSetWrap.style.display = 'none';
         var list = MockStore.getMerchantSetKnowledge(state.currentSetId);
         var k = list.find(function (x) { return x.id === id; });
-        if (k) {
-          elements.formStandardQ.value = k.standardQ || '';
-          elements.formSimilarQ.value = (k.similarQs || []).join('\n');
-          elements.formAnswer.value = k.answer || '';
-        }
+        Form.setData(knowledgeFields, {
+          standardQ: k ? (k.standardQ || '') : '',
+          similarQs: k ? (k.similarQs || []).join('\n') : '',
+          answer: k ? (k.answer || '') : ''
+        });
       } else {
         elements.knowledgeFormSetWrap.style.display = 'block';
         this.fillFormSelect();
         elements.knowledgeFormSet.value = '';
-        elements.formStandardQ.value = '';
-        elements.formSimilarQ.value = '';
-        elements.formAnswer.value = '';
+        Form.reset(knowledgeFields);
       }
-      
-      elements.knowledgeModal.style.display = 'flex';
+
+      modals.knowledge.open();
     },
 
     closeModal: function () {
-      elements.knowledgeModal.style.display = 'none';
-      state.editingKnowledgeId = null;
+      modals.knowledge.close();
     },
 
     save: function () {
-      var standardQ = elements.formStandardQ.value.trim();
-      var similarQs = elements.formSimilarQ.value.trim().split(/\n/).map(function (s) {
-        return s.trim();
-      }).filter(Boolean);
-      var answer = elements.formAnswer.value.trim();
-      
-      if (!standardQ) {
-        Toast.show('请填写标准问', 'error');
+      var data = Form.getData(knowledgeFields);
+      var similarQs = Utils.splitLines(data.similarQs);
+
+      var check = Form.validate(data, ['standardQ'], { standardQ: '标准问' });
+      if (!check.valid) {
+        Toast.show(check.message, 'error');
         return;
       }
-      
+
       var setId = state.editingKnowledgeId
         ? state.currentSetId
         : (elements.knowledgeFormSet.value || '').trim();
-      
+
       if (!setId) {
         Toast.show('请选择要添加知识的商家集合', 'error');
         return;
       }
-      
+
       if (state.editingKnowledgeId) {
         MockStore.updateMerchantSetKnowledge(setId, state.editingKnowledgeId, {
-          standardQ: standardQ,
+          standardQ: data.standardQ,
           similarQs: similarQs,
-          answer: answer
+          answer: data.answer
         });
         Toast.show('知识更新成功', 'success');
       } else {
         MockStore.addMerchantSetKnowledge(setId, {
-          standardQ: standardQ,
+          standardQ: data.standardQ,
           similarQs: similarQs,
-          answer: answer
+          answer: data.answer
         });
         Toast.show('知识创建成功', 'success');
       }
-      
+
       this.closeModal();
       this.render();
     }
@@ -302,6 +313,13 @@
 
   // ====================== 事件绑定 ======================
   function bindEvents() {
+    modals.set = Modal.create(elements.setModal, {
+      onClose: function () { state.editingSetId = null; }
+    });
+    modals.knowledge = Modal.create(elements.knowledgeModal, {
+      onClose: function () { state.editingKnowledgeId = null; }
+    });
+
     elements.btnAddSet.addEventListener('click', function () {
       SetManager.openModal();
     });
@@ -310,9 +328,6 @@
     });
     elements.setModalSubmit.addEventListener('click', function () {
       SetManager.save();
-    });
-    Modal.bindOverlayClose(elements.setModal, function () {
-      SetManager.closeModal();
     });
 
     elements.setSelect.addEventListener('change', function () {
@@ -327,9 +342,6 @@
     });
     elements.knowledgeModalSubmit.addEventListener('click', function () {
       KnowledgeManager.save();
-    });
-    Modal.bindOverlayClose(elements.knowledgeModal, function () {
-      KnowledgeManager.closeModal();
     });
   }
 

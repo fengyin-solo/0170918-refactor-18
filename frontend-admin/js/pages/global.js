@@ -9,10 +9,21 @@
   var Table = App.Table;
   var Modal = App.Modal;
   var Select = App.Select;
+  var Form = App.Form;
 
   // ====================== 页面状态 ======================
   var state = {
     editingKnowledgeId: null
+  };
+
+  /** 弹窗控制器（统一开关入口） */
+  var modals = {};
+
+  /** 知识表单字段映射 */
+  var knowledgeFields = {
+    standardQ: 'formStandardQ',
+    similarQs: 'formSimilarQ',
+    answer: 'formAnswer'
   };
 
   // ====================== DOM 元素缓存 ======================
@@ -73,57 +84,52 @@
     openModal: function (id) {
       state.editingKnowledgeId = id || null;
       elements.knowledgeModalTitle.textContent = id ? '编辑知识' : '新增知识';
-      
+
       if (id) {
         var list = MockStore.getGlobalKnowledge();
         var k = list.find(function (x) { return x.id === id; });
-        if (k) {
-          elements.formStandardQ.value = k.standardQ || '';
-          elements.formSimilarQ.value = (k.similarQs || []).join('\n');
-          elements.formAnswer.value = k.answer || '';
-        }
+        Form.setData(knowledgeFields, {
+          standardQ: k ? (k.standardQ || '') : '',
+          similarQs: k ? (k.similarQs || []).join('\n') : '',
+          answer: k ? (k.answer || '') : ''
+        });
       } else {
-        elements.formStandardQ.value = '';
-        elements.formSimilarQ.value = '';
-        elements.formAnswer.value = '';
+        Form.reset(knowledgeFields);
       }
-      
-      elements.knowledgeModal.style.display = 'flex';
+
+      modals.knowledge.open();
     },
 
     closeModal: function () {
-      elements.knowledgeModal.style.display = 'none';
-      state.editingKnowledgeId = null;
+      modals.knowledge.close();
     },
 
     save: function () {
-      var standardQ = elements.formStandardQ.value.trim();
-      var similarQs = elements.formSimilarQ.value.trim().split(/\n/).map(function (s) {
-        return s.trim();
-      }).filter(Boolean);
-      var answer = elements.formAnswer.value.trim();
-      
-      if (!standardQ) {
-        Toast.show('请填写标准问', 'error');
+      var data = Form.getData(knowledgeFields);
+      var similarQs = Utils.splitLines(data.similarQs);
+
+      var check = Form.validate(data, ['standardQ'], { standardQ: '标准问' });
+      if (!check.valid) {
+        Toast.show(check.message, 'error');
         return;
       }
-      
+
       if (state.editingKnowledgeId) {
         MockStore.updateGlobalKnowledge(state.editingKnowledgeId, {
-          standardQ: standardQ,
+          standardQ: data.standardQ,
           similarQs: similarQs,
-          answer: answer
+          answer: data.answer
         });
         Toast.show('知识更新成功', 'success');
       } else {
         MockStore.addGlobalKnowledge({
-          standardQ: standardQ,
+          standardQ: data.standardQ,
           similarQs: similarQs,
-          answer: answer
+          answer: data.answer
         });
         Toast.show('知识创建成功', 'success');
       }
-      
+
       this.closeModal();
       this.render();
     }
@@ -147,30 +153,28 @@
       var merchants = MockStore.getMerchants();
       var map = {};
       merchants.forEach(function (m) { map[m.id] = m.name; });
-      
-      if (blacklist.length === 0) {
-        elements.blacklistTableBody.innerHTML = '';
-        elements.blacklistEmpty.classList.remove('hidden');
-        var wrap = elements.blacklistTableBody.closest('.table-wrap');
-        if (wrap) wrap.style.display = 'none';
-        return;
-      }
-      
-      elements.blacklistEmpty.classList.add('hidden');
-      var wrap = elements.blacklistTableBody.closest('.table-wrap');
-      if (wrap) wrap.style.display = '';
-      
+
       var data = blacklist.map(function (id) {
         return { id: id, name: map[id] || '-' };
       });
-      
-      Table.render(elements.blacklistTableBody, data, function (item) {
-        return '<td class="font-mono text-sm text-obsidian">' + Utils.escapeHtml(item.id) + '</td>' +
-          '<td class="text-obsidian">' + Utils.escapeHtml(item.name) + '</td>' +
-          '<td class="text-right">' +
-            '<button type="button" class="btn-link bl-remove" data-id="' + item.id + '">移出</button>' +
-          '</td>';
-      }, this.bindTableEvents.bind(this));
+
+      Table.renderOrEmpty({
+        tbody: elements.blacklistTableBody,
+        data: data,
+        emptyEl: elements.blacklistEmpty,
+        rowRenderer: function (item) {
+          return '<td class="font-mono text-sm text-obsidian">' + Utils.escapeHtml(item.id) + '</td>' +
+            '<td class="text-obsidian">' + Utils.escapeHtml(item.name) + '</td>' +
+            '<td class="text-right">' +
+              '<button type="button" class="btn-link bl-remove" data-id="' + item.id + '">移出</button>' +
+            '</td>';
+        },
+        bindEvents: this.bindTableEvents.bind(this)
+      });
+
+      // 空黑名单时连同表头一起隐藏（保持原表现）
+      var wrap = elements.blacklistTableBody.closest('.table-wrap');
+      if (wrap) wrap.style.display = data.length === 0 ? 'none' : '';
     },
 
     bindTableEvents: function (tbody) {
@@ -200,6 +204,10 @@
 
   // ====================== 事件绑定 ======================
   function bindEvents() {
+    modals.knowledge = Modal.create(elements.knowledgeModal, {
+      onClose: function () { state.editingKnowledgeId = null; }
+    });
+
     elements.btnAddKnowledge.addEventListener('click', function () {
       KnowledgeManager.openModal();
     });
@@ -208,9 +216,6 @@
     });
     elements.knowledgeModalSubmit.addEventListener('click', function () {
       KnowledgeManager.save();
-    });
-    Modal.bindOverlayClose(elements.knowledgeModal, function () {
-      KnowledgeManager.closeModal();
     });
 
     elements.btnAddBlacklist.addEventListener('click', function () {

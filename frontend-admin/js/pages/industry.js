@@ -9,6 +9,7 @@
   var Table = App.Table;
   var Modal = App.Modal;
   var Select = App.Select;
+  var Form = App.Form;
 
   var NEW_LEVEL1_VALUE = '__new__';
   var NEW_LEVEL2_VALUE = '__new_level2__';
@@ -21,6 +22,24 @@
     editingKnowledgeId: null,
     level1Options: [],
     level2Map: {}
+  };
+
+  /** 弹窗控制器（统一开关入口） */
+  var modals = {};
+
+  /** 行业表单字段映射（一级下拉的特殊取值在 save 中处理） */
+  var industryFields = {
+    level1: 'industryFormLevel1',
+    level2: 'industryFormLevel2',
+    newLevel1: 'industryFormNewLevel1',
+    newLevel2: 'industryFormNewLevel2'
+  };
+
+  /** 知识表单字段映射 */
+  var knowledgeFields = {
+    standardQ: 'formStandardQ',
+    similarQs: 'formSimilarQ',
+    answer: 'formAnswer'
   };
 
   // ====================== DOM 元素缓存 ======================
@@ -157,29 +176,24 @@
     },
 
     fillLevel1: function () {
-      elements.industryFormLevel1.innerHTML = '<option value="">请选择一级行业</option>';
       var existingLevel1 = state.industries.filter(function (i) { return !i.level2; }).map(function (i) { return i.level1; });
       var seen = {};
+      var options = [];
       existingLevel1.forEach(function (v) {
         if (seen[v]) return;
         seen[v] = true;
-        var opt = document.createElement('option');
-        opt.value = v;
-        opt.textContent = v;
-        elements.industryFormLevel1.appendChild(opt);
+        options.push({ value: v, label: v });
       });
-      var optNew = document.createElement('option');
-      optNew.value = NEW_LEVEL1_VALUE;
-      optNew.textContent = '＋ 新建一级行业';
-      elements.industryFormLevel1.appendChild(optNew);
+      options.push({ value: NEW_LEVEL1_VALUE, label: '＋ 新建一级行业' });
+      Select.fill(elements.industryFormLevel1, options, '请选择一级行业');
     },
 
     fillLevel2: function (level1) {
-      elements.industryFormLevel2.innerHTML = '<option value="">不填则新增一级行业</option>';
       elements.industryFormLevel2.disabled = !level1 || level1 === NEW_LEVEL1_VALUE;
       elements.industryFormNewLevel2Wrap.classList.add('hidden');
       elements.industryFormNewLevel2.value = '';
-      
+
+      var options = [];
       if (level1 && level1 !== NEW_LEVEL1_VALUE) {
         var preset = state.level2Map[level1] || [];
         var existing = state.industries.filter(function (i) {
@@ -190,16 +204,12 @@
           if (merged.indexOf(v) === -1) merged.push(v);
         });
         merged.forEach(function (v) {
-          var opt = document.createElement('option');
-          opt.value = v;
-          opt.textContent = v;
-          elements.industryFormLevel2.appendChild(opt);
+          options.push({ value: v, label: v });
         });
-        var optNew = document.createElement('option');
-        optNew.value = NEW_LEVEL2_VALUE;
-        optNew.textContent = '＋ 新建二级行业';
-        elements.industryFormLevel2.appendChild(optNew);
+        options.push({ value: NEW_LEVEL2_VALUE, label: '＋ 新建二级行业' });
       }
+      // 未选择一级行业时的引导文案仍作为占位项
+      Select.fill(elements.industryFormLevel2, options, '不填则新增一级行业');
     },
 
     openModal: function (id) {
@@ -207,7 +217,7 @@
       elements.industryModalTitle.textContent = id ? '编辑行业' : '新增行业';
       elements.industryFormNewLevel1.value = '';
       this.fillLevel1();
-      
+
       if (id) {
         var ind = state.industries.find(function (i) { return i.id === id; });
         if (ind) {
@@ -220,34 +230,34 @@
       } else {
         elements.industryFormNewLevel1Wrap.classList.add('hidden');
         elements.industryFormLevel2Wrap.classList.remove('hidden');
-        elements.industryFormLevel2.innerHTML = '<option value="">请先选择一级行业</option>';
+        Select.fill(elements.industryFormLevel2, [], '请先选择一级行业');
         elements.industryFormLevel2.disabled = true;
       }
-      
-      elements.industryModal.style.display = 'flex';
+
+      modals.industry.open();
     },
 
     closeModal: function () {
-      elements.industryModal.style.display = 'none';
-      state.editingIndustryId = null;
+      modals.industry.close();
     },
 
     save: function () {
+      var form = Form.getData(industryFields);
       var level1;
-      var level2 = (elements.industryFormLevel2.value || '').trim();
+      var level2 = form.level2;
       if (level2 === NEW_LEVEL2_VALUE) {
-        level2 = (elements.industryFormNewLevel2.value || '').trim();
+        level2 = form.newLevel2;
       }
-      
-      if (elements.industryFormLevel1.value === NEW_LEVEL1_VALUE) {
-        level1 = (elements.industryFormNewLevel1.value || '').trim();
+
+      if (form.level1 === NEW_LEVEL1_VALUE) {
+        level1 = form.newLevel1;
         level2 = '';
         if (!level1) {
           Toast.show('请输入新一级行业名称', 'error');
           return;
         }
       } else {
-        level1 = (elements.industryFormLevel1.value || '').trim();
+        level1 = form.level1;
         if (!level1) {
           Toast.show('请选择一级行业', 'error');
           return;
@@ -257,7 +267,7 @@
           return;
         }
       }
-      
+
       if (state.editingIndustryId) {
         MockStore.updateIndustry(state.editingIndustryId, level1, level2);
         Toast.show('行业信息更新成功', 'success');
@@ -265,7 +275,7 @@
         MockStore.createIndustry(level1, level2);
         Toast.show('行业创建成功', 'success');
       }
-      
+
       this.closeModal();
       this.render();
       this.fillSelect();
@@ -293,24 +303,24 @@
         });
       }
 
-      Table.toggleEmpty(elements.knowledgeEmpty, elements.knowledgeBlock, list.length === 0);
-      
-      if (list.length === 0) {
-        elements.knowledgeTableBody.innerHTML = '';
-        return;
-      }
-
-      Table.render(elements.knowledgeTableBody, list, function (row) {
-        var k = row.data;
-        return '<td class="text-subtle text-sm">' + Utils.escapeHtml(row.industryName) + '</td>' +
-          '<td class="text-obsidian">' + Utils.escapeHtml(k.standardQ || '') + '</td>' +
-          '<td class="text-subtle">' + Utils.escapeHtml((k.similarQs || []).join('；')) + '</td>' +
-          '<td class="text-charcoal max-w-xs truncate">' + Utils.escapeHtml(k.answer || '') + '</td>' +
-          '<td class="text-right">' +
-            '<button type="button" class="btn-link k-edit mr-2" data-id="' + k.id + '" data-iid="' + row.industryId + '">编辑</button>' +
-            '<button type="button" class="btn-link btn-link-danger k-delete" data-id="' + k.id + '" data-iid="' + row.industryId + '">删除</button>' +
-          '</td>';
-      }, this.bindTableEvents.bind(this));
+      Table.renderOrEmpty({
+        tbody: elements.knowledgeTableBody,
+        data: list,
+        emptyEl: elements.knowledgeEmpty,
+        blockEl: elements.knowledgeBlock,
+        rowRenderer: function (row) {
+          var k = row.data;
+          return '<td class="text-subtle text-sm">' + Utils.escapeHtml(row.industryName) + '</td>' +
+            '<td class="text-obsidian">' + Utils.escapeHtml(k.standardQ || '') + '</td>' +
+            '<td class="text-subtle">' + Utils.escapeHtml((k.similarQs || []).join('；')) + '</td>' +
+            '<td class="text-charcoal max-w-xs truncate">' + Utils.escapeHtml(k.answer || '') + '</td>' +
+            '<td class="text-right">' +
+              '<button type="button" class="btn-link k-edit mr-2" data-id="' + k.id + '" data-iid="' + row.industryId + '">编辑</button>' +
+              '<button type="button" class="btn-link btn-link-danger k-delete" data-id="' + k.id + '" data-iid="' + row.industryId + '">删除</button>' +
+            '</td>';
+        },
+        bindEvents: this.bindTableEvents.bind(this)
+      });
     },
 
     bindTableEvents: function (tbody) {
@@ -365,70 +375,65 @@
     openModal: function (id) {
       state.editingKnowledgeId = id || null;
       elements.knowledgeModalTitle.textContent = id ? '编辑知识' : '新增知识';
-      
+
       if (id) {
         elements.knowledgeFormIndustryWrap.style.display = 'none';
         var list = MockStore.getIndustryKnowledge(state.currentIndustryId);
         var k = list.find(function (x) { return x.id === id; });
-        if (k) {
-          elements.formStandardQ.value = k.standardQ || '';
-          elements.formSimilarQ.value = (k.similarQs || []).join('\n');
-          elements.formAnswer.value = k.answer || '';
-        }
+        Form.setData(knowledgeFields, {
+          standardQ: k ? (k.standardQ || '') : '',
+          similarQs: k ? (k.similarQs || []).join('\n') : '',
+          answer: k ? (k.answer || '') : ''
+        });
       } else {
         elements.knowledgeFormIndustryWrap.style.display = 'block';
         this.fillFormSelect();
         elements.knowledgeFormIndustry.value = '';
-        elements.formStandardQ.value = '';
-        elements.formSimilarQ.value = '';
-        elements.formAnswer.value = '';
+        Form.reset(knowledgeFields);
       }
-      
-      elements.knowledgeModal.style.display = 'flex';
+
+      modals.knowledge.open();
     },
 
     closeModal: function () {
-      elements.knowledgeModal.style.display = 'none';
-      state.editingKnowledgeId = null;
+      modals.knowledge.close();
     },
 
     save: function () {
-      var standardQ = elements.formStandardQ.value.trim();
-      var similarQs = elements.formSimilarQ.value.trim().split(/\n/).map(function (s) {
-        return s.trim();
-      }).filter(Boolean);
-      var answer = elements.formAnswer.value.trim();
-      
-      if (!standardQ) {
-        Toast.show('请填写标准问', 'error');
+      var data = Form.getData(knowledgeFields);
+      var similarQs = Utils.splitLines(data.similarQs);
+
+      var check = Form.validate(data, ['standardQ'], { standardQ: '标准问' });
+      if (!check.valid) {
+        Toast.show(check.message, 'error');
         return;
       }
-      
+
       var industryId = state.editingKnowledgeId
         ? state.currentIndustryId
         : (elements.knowledgeFormIndustry.value || '').trim();
-      
+
       if (!industryId) {
         Toast.show('请选择要添加知识的行业', 'error');
         return;
       }
-      
+
       if (state.editingKnowledgeId) {
         MockStore.updateIndustryKnowledge(industryId, state.editingKnowledgeId, {
-          standardQ: standardQ,
+          standardQ: data.standardQ,
           similarQs: similarQs,
-          answer: answer
+          answer: data.answer
         });
         Toast.show('知识更新成功', 'success');
       } else {
         MockStore.addIndustryKnowledge(industryId, {
-          standardQ: standardQ,
+          standardQ: data.standardQ,
           similarQs: similarQs,
-          answer: answer
+          answer: data.answer
         });
         Toast.show('知识创建成功', 'success');
       }
-      
+
       this.closeModal();
       this.render();
     }
@@ -436,6 +441,13 @@
 
   // ====================== 事件绑定 ======================
   function bindEvents() {
+    modals.industry = Modal.create(elements.industryModal, {
+      onClose: function () { state.editingIndustryId = null; }
+    });
+    modals.knowledge = Modal.create(elements.knowledgeModal, {
+      onClose: function () { state.editingKnowledgeId = null; }
+    });
+
     elements.btnAddIndustry.addEventListener('click', function () {
       IndustryManager.openModal();
     });
@@ -444,9 +456,6 @@
     });
     elements.industryModalSubmit.addEventListener('click', function () {
       IndustryManager.save();
-    });
-    Modal.bindOverlayClose(elements.industryModal, function () {
-      IndustryManager.closeModal();
     });
 
     elements.industryFormLevel1.addEventListener('change', function () {
@@ -484,9 +493,6 @@
     });
     elements.knowledgeModalSubmit.addEventListener('click', function () {
       KnowledgeManager.save();
-    });
-    Modal.bindOverlayClose(elements.knowledgeModal, function () {
-      KnowledgeManager.closeModal();
     });
   }
 

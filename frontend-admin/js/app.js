@@ -76,6 +76,17 @@
           fn.apply(context, args);
         }, delay);
       };
+    },
+
+    /**
+     * 将多行文本拆分为非空行（去除首尾空白，过滤空行）
+     * @param {string} text 原始多行文本
+     * @returns {string[]} 非空行数组
+     */
+    splitLines: function (text) {
+      return (text || '').trim().split(/\n/).map(function (s) {
+        return s.trim();
+      }).filter(Boolean);
     }
   };
 
@@ -87,13 +98,17 @@
      * @param {Array} data 数据数组
      * @param {Function} rowRenderer 行渲染函数，返回 HTML 字符串
      * @param {Function} bindEvents 事件绑定函数（可选）
+     * @param {Function|string} rowClass 行类名：字符串或 (item, index) => string（可选）
      */
-    render: function (tbody, data, rowRenderer, bindEvents) {
+    render: function (tbody, data, rowRenderer, bindEvents, rowClass) {
       if (!tbody) return;
+      data = data || [];
       tbody.innerHTML = '';
-      
+
       data.forEach(function (item, index) {
         var tr = document.createElement('tr');
+        var cls = typeof rowClass === 'function' ? rowClass(item, index) : rowClass;
+        if (cls) tr.className = cls;
         tr.innerHTML = rowRenderer(item, index);
         tbody.appendChild(tr);
       });
@@ -101,6 +116,30 @@
       if (typeof bindEvents === 'function') {
         bindEvents(tbody);
       }
+    },
+
+    /**
+     * 渲染表格并统一切换空状态（空数据/单条/多条渲染结果一致）
+     * 空数据时：清空 tbody、展示空状态元素、隐藏内容块；不执行 bindEvents
+     * @param {Object} opts
+     *   tbody: 表格 tbody 元素
+     *   data: 数据数组
+     *   rowRenderer: 行渲染函数，返回 HTML 字符串
+     *   emptyEl: 空状态元素（可选，默认仅清空 tbody）
+     *   blockEl: 有数据时展示的内容块（可选）
+     *   bindEvents: 事件绑定函数（可选）
+     *   rowClass: 行类名，字符串或函数（可选）
+     */
+    renderOrEmpty: function (opts) {
+      var data = opts.data || [];
+      if (opts.emptyEl || opts.blockEl) {
+        this.toggleEmpty(opts.emptyEl || null, opts.blockEl || null, data.length === 0);
+      }
+      if (data.length === 0) {
+        if (opts.tbody) opts.tbody.innerHTML = '';
+        return;
+      }
+      this.render(opts.tbody, data, opts.rowRenderer, opts.bindEvents, opts.rowClass);
     },
 
     /**
@@ -123,23 +162,36 @@
   // ====================== 弹窗模块 ======================
   App.Modal = {
     /**
-     * 创建弹窗控制器
+     * 创建弹窗控制器（弹窗开关的统一入口）
      * @param {HTMLElement} modalEl 弹窗元素
+     * @param {Object} options 配置项（可选）
+     *   onClose: 任意方式关闭（取消/遮罩/close）时的回调
+     *   overlayClose: 是否绑定点击遮罩关闭，默认 true
      * @returns {Object} 弹窗控制器
      */
-    create: function (modalEl) {
-      return {
+    create: function (modalEl, options) {
+      options = options || {};
+      var overlayBound = false;
+      var controller = {
         el: modalEl,
         open: function () {
           if (modalEl) modalEl.style.display = 'flex';
         },
         close: function () {
           if (modalEl) modalEl.style.display = 'none';
+          if (typeof options.onClose === 'function') options.onClose();
         },
         isOpen: function () {
-          return modalEl && modalEl.style.display === 'flex';
+          return !!modalEl && modalEl.style.display === 'flex';
         }
       };
+      if (options.overlayClose !== false && modalEl && !overlayBound) {
+        this.bindOverlayClose(modalEl, function () {
+          controller.close();
+        });
+        overlayBound = true;
+      }
+      return controller;
     },
 
     /**
@@ -216,19 +268,31 @@
 
     /**
      * 验证必填字段
+     * 两种用法（向后兼容）：
+     *   validate(data, ['fieldA'], { fieldA: '字段A' })
+     *   validate(data, [{ field: 'fieldA', label: '字段A', message: '请选择字段A' }])
+     * 规则为对象时：message 优先，其次「请填写 + label/字段名」
      * @param {Object} data 表单数据
-     * @param {Array} requiredFields 必填字段名数组
-     * @param {Object} labels 字段标签映射
+     * @param {Array} requiredFields 必填规则：字段名或 { field, label, message }
+     * @param {Object} labels 字段标签映射（字段名形式时生效）
      * @returns {Object} { valid: boolean, message: string }
      */
     validate: function (data, requiredFields, labels) {
       labels = labels || {};
       for (var i = 0; i < requiredFields.length; i++) {
-        var field = requiredFields[i];
+        var rule = requiredFields[i];
+        var field, message;
+        if (rule && typeof rule === 'object') {
+          field = rule.field;
+          message = rule.message || ('请填写' + (rule.label || field));
+        } else {
+          field = rule;
+          message = '请填写' + (labels[field] || field);
+        }
         if (!data[field]) {
           return {
             valid: false,
-            message: '请填写' + (labels[field] || field)
+            message: message
           };
         }
       }
